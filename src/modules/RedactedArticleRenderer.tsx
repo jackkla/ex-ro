@@ -13,9 +13,9 @@ function formattingStyle(f: Formatting): React.CSSProperties {
     case 'bold': return { fontWeight: 'bold' }
     case 'italic': return { fontStyle: 'italic' }
     case 'bold-italic': return { fontWeight: 'bold', fontStyle: 'italic' }
-    case 'heading-1': return { fontSize: '2em', fontWeight: 'bold', display: 'block' }
-    case 'heading-2': return { fontSize: '1.5em', fontWeight: 'bold', display: 'block' }
-    case 'heading-3': return { fontSize: '1.17em', fontWeight: 'bold', display: 'block' }
+    case 'heading-1': return { fontSize: '2em', fontWeight: 'bold' }
+    case 'heading-2': return { fontSize: '1.5em', fontWeight: 'bold' }
+    case 'heading-3': return { fontSize: '1.17em', fontWeight: 'bold' }
     case 'superscript': return { verticalAlign: 'super', fontSize: '0.75em' }
     case 'subscript': return { verticalAlign: 'sub', fontSize: '0.75em' }
     case 'wikilink': return { textDecoration: 'underline', color: '#3366cc' }
@@ -39,12 +39,13 @@ function RedactBox({ token, visibility, onClick, refCallback }: {
         display: 'inline-block',
         width,
         height: '0.9em',
-        backgroundColor: '#1a1a1a',
-        opacity: visibility === 'dimmed' ? 0.3 : 1,
+        backgroundColor: '#2a2a3c',
+        opacity: visibility === 'dimmed' ? 0.35 : 1,
         verticalAlign: 'middle',
-        borderRadius: '2px',
+        borderRadius: '3px',
         margin: '0 1px',
         cursor: onClick ? 'pointer' : undefined,
+        transition: 'opacity 0.15s',
       }}
     />
   )
@@ -142,7 +143,10 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
         if (group.paraIdx >= 0) {
           return <p key={gi} style={{ margin: '0.75em 0' }}>{content}</p>
         }
-        return <div key={gi}>{content}</div>
+        // Check if this group contains heading tokens and wrap appropriately
+        const headingFmt = group.tokens.find(t => t.formatting?.startsWith('heading'))?.formatting
+        const Tag = headingFmt === 'heading-1' ? 'h1' : headingFmt === 'heading-2' ? 'h2' : headingFmt === 'heading-3' ? 'h3' : 'div'
+        return <Tag key={gi} style={{ margin: '1em 0 0.25em' }}>{content}</Tag>
       })}
     </div>
   )

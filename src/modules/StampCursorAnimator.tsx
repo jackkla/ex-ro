@@ -12,6 +12,7 @@ const RPM = 12
 const DEG_PER_MS = (RPM * 360) / 60_000
 
 export function StampCursor({ shape, containerRef, pixelsPerAreaUnit, onMouseMove }: CursorAnimatorProps) {
+  // Track raw viewport coords so the fixed SVG overlay stays under the mouse
   const [pos, setPos] = useState({ x: -9999, y: -9999 })
   const rotationRef = useRef(0)
   const [rotation, setRotation] = useState(0)
@@ -29,11 +30,10 @@ export function StampCursor({ shape, containerRef, pixelsPerAreaUnit, onMouseMov
     container.style.cursor = 'none'
 
     const handleMove = (e: MouseEvent) => {
+      // Store viewport coords for the fixed SVG; report container-relative to caller
+      setPos({ x: e.clientX, y: e.clientY })
       const rect = container.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
-      setPos({ x, y })
-      onMouseMoveRef.current?.(x, y)
+      onMouseMoveRef.current?.(e.clientX - rect.left, e.clientY - rect.top)
     }
 
     container.addEventListener('mousemove', handleMove)
@@ -69,12 +69,14 @@ export function StampCursor({ shape, containerRef, pixelsPerAreaUnit, onMouseMov
   return (
     <svg
       style={{
-        position: 'absolute',
-        inset: 0,
-        width: '100%',
-        height: '100%',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
         overflow: 'visible',
         pointerEvents: 'none',
+        zIndex: 50,
       }}
     >
       <g transform={`translate(${pos.x}, ${pos.y}) rotate(${rotation})`}>
