@@ -126,24 +126,21 @@ html, body, #root {
 
 .article-panel {
   flex: 1;
-  padding: 2.5rem 3rem;
-  background: #ffffff;
+  background: #eaecf0;
+  padding: 1.5rem;
+  min-height: 100vh;
 }
 
 .article-panel.stamp-mode {
   cursor: none;
 }
 
-/* Heading groups rendered as h2/h3 by renderer */
-.article-panel h2 {
-  font-family: var(--font-serif);
-  font-size: 1.2rem;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3em;
-  margin: 1.5em 0 0.6em;
-  font-weight: bold;
-  letter-spacing: 0.02em;
+.article-content {
+  background: #fff;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.25rem 2rem 2rem;
+  border: 1px solid #a2a9b1;
 }
 
 

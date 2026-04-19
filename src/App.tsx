@@ -295,11 +295,13 @@ export default function App() {
           ref={articleRef}
           onClick={handleArticleClick}
         >
-          <RedactedArticle
-            article={article}
-            visibilityMap={visibilityMap}
-            onBoundingBoxes={handleBoundingBoxes}
-          />
+          <div className="article-content">
+            <RedactedArticle
+              article={article}
+              visibilityMap={visibilityMap}
+              onBoundingBoxes={handleBoundingBoxes}
+            />
+          </div>
         </main>
 
         <aside className="sidebar">
@@ -444,7 +446,7 @@ export default function App() {
         <rect
           x="-9999" y="-9999"
           width="19998" height="19998"
-          fill="rgba(0,0,0,0.93)"
+          fill="#000"
           mask="url(#stamp-mask)"
         />
       </svg>

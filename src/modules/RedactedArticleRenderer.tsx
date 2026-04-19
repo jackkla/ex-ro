@@ -12,12 +12,12 @@ function formattingStyle(f: Formatting): React.CSSProperties {
     case 'bold': return { fontWeight: 'bold' }
     case 'italic': return { fontStyle: 'italic' }
     case 'bold-italic': return { fontWeight: 'bold', fontStyle: 'italic' }
-    case 'heading-1': return { fontSize: '2em', fontWeight: 'bold' }
-    case 'heading-2': return { fontSize: '1.5em', fontWeight: 'bold' }
+    case 'heading-1': return { fontSize: '1.95em', fontWeight: 'normal', fontFamily: "'Linux Libertine', Georgia, Times, serif" }
+    case 'heading-2': return { fontSize: '1.5em', fontWeight: 'normal', fontFamily: "'Linux Libertine', Georgia, Times, serif" }
     case 'heading-3': return { fontSize: '1.17em', fontWeight: 'bold' }
     case 'superscript': return { verticalAlign: 'super', fontSize: '0.75em' }
     case 'subscript': return { verticalAlign: 'sub', fontSize: '0.75em' }
-    case 'wikilink': return { textDecoration: 'underline', color: '#0645ad', fontWeight: 'bold' }
+    case 'wikilink': return { color: '#3366CC', textDecoration: 'none' }
     default: return {}
   }
 }
@@ -106,16 +106,38 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes }: Ren
     )
   }
 
+  const headingBorderStyle: React.CSSProperties = {
+    borderBottom: '1px solid #a2a9b1',
+    paddingBottom: '3px',
+    marginBottom: '0.25em',
+  }
+
   return (
-    <div style={{ fontFamily: 'Georgia, serif', lineHeight: 1.7, padding: '1.5em', maxWidth: '65ch', color: '#202122' }}>
+    <div style={{
+      fontFamily: "'Linux Libertine', Georgia, Times, 'Times New Roman', serif",
+      fontSize: '0.9375em',
+      lineHeight: 1.6,
+      color: '#202122',
+      maxWidth: '960px',
+    }}>
       {groups.map((group, gi) => {
         const content = group.tokens.map(renderToken)
         if (group.paraIdx >= 0) {
-          return <p key={gi} style={{ margin: '0.75em 0' }}>{content}</p>
+          return <p key={gi} style={{ margin: '0.5em 0', lineHeight: 1.6 }}>{content}</p>
         }
         const headingFmt = group.tokens.find(t => t.formatting?.startsWith('heading'))?.formatting
         const Tag = headingFmt === 'heading-1' ? 'h1' : headingFmt === 'heading-2' ? 'h2' : headingFmt === 'heading-3' ? 'h3' : 'div'
-        return <Tag key={gi} style={{ margin: '1em 0 0.25em', color: '#202122' }}>{content}</Tag>
+        const isH1orH2 = Tag === 'h1' || Tag === 'h2'
+        return (
+          <Tag key={gi} style={{
+            margin: '1em 0 0',
+            color: '#202122',
+            fontWeight: Tag === 'h3' ? 'bold' : 'normal',
+            ...(isH1orH2 ? headingBorderStyle : {}),
+          }}>
+            {content}
+          </Tag>
+        )
       })}
     </div>
   )
