@@ -95,7 +95,7 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes }: Ren
     if (token.type === 'space') return <span key={token.id}>{token.text}</span>
     if (token.type === 'punct') return <span key={token.id} style={{ color: '#202122' }}>{token.text}</span>
 
-    const revealed = visibilityMap[token.id] === 'revealed'
+    const revealed = (visibilityMap[token.id] ?? 'hidden') !== 'hidden'
     return (
       <WordToken
         key={token.id}

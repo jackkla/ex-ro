@@ -162,6 +162,21 @@ export default function App() {
     return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current) }
   }, [activeStamp])
 
+  // Sync stamp group transform on scroll so mask holes don't lag behind page scroll
+  useEffect(() => {
+    const sync = () => {
+      const panelRect = articleRef.current?.getBoundingClientRect()
+      if (panelRect && stampGroupRef.current) {
+        stampGroupRef.current.setAttribute(
+          'transform',
+          `translate(${panelRect.left}, ${panelRect.top})`,
+        )
+      }
+    }
+    window.addEventListener('scroll', sync, { passive: true })
+    return () => window.removeEventListener('scroll', sync)
+  }, [])
+
   // Mouse tracking for stamp cursor (viewport coords for cursor image, content coords for mask hole)
   useEffect(() => {
     if (!activeStamp) return
@@ -234,7 +249,7 @@ export default function App() {
     setPlacedStamps(prev => [...prev, newStamp])
 
     const hits      = detectHits(newStamp, bbRef.current, rect)
-    const toCollect = hits.filter(id => visibilityMap[id] !== 'revealed')
+    const toCollect = hits.filter(id => (visibilityMap[id] ?? 'hidden') === 'hidden')
 
     let collected = 0
     for (const tokenId of toCollect) {
@@ -245,6 +260,8 @@ export default function App() {
       setWords(inv.getWords())
       showToast(`+ ${collected} word${collected > 1 ? 's' : ''} collected!`)
     }
+    // Single use: consume stamp after placement
+    setActiveStamp(null)
   }
 
   function handleScrap(wordId: string) {
