@@ -148,30 +148,13 @@ html, body, #root {
 .article-panel {
   flex: 1;
   overflow-y: auto;
-  padding: 2.5rem 3rem;
+  padding: 1.5rem 2rem;
   position: relative;  /* needed for stamp overlay + hit highlights */
-  background: var(--bg);
-}
-
-/* Pass dark theme into the renderer's inline-styled content */
-.article-panel > div {
-  color: var(--text) !important;
+  background: #f6f6f6;  /* Wikipedia outer background */
 }
 
 .article-panel.stamp-mode {
   cursor: crosshair;
-}
-
-/* Heading groups rendered as h2/h3 by renderer */
-.article-panel h2 {
-  font-family: var(--font-serif);
-  font-size: 1.2rem;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3em;
-  margin: 1.5em 0 0.6em;
-  font-weight: bold;
-  letter-spacing: 0.02em;
 }
 
 /* ── Hit highlights ───────────────────────────────────── */

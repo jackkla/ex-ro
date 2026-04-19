@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react'
-import type { TokenizedArticle, VisibilityMap, BoundingBoxMap, TokenId, Token, Formatting } from '../types'
+import type { TokenizedArticle, VisibilityMap, TokenId, Token, Formatting } from '../types'
 
 export type RendererProps = {
   article: TokenizedArticle
   visibilityMap: VisibilityMap
-  onBoundingBoxes: (map: BoundingBoxMap) => void
+  onElementRefs: (map: Map<TokenId, HTMLElement>) => void
   onWordClick?: (tokenId: TokenId) => void
 }
 
@@ -38,11 +38,11 @@ function RedactBox({ token, visibility, onClick, refCallback }: {
       style={{
         display: 'inline-block',
         width,
-        height: '0.9em',
-        backgroundColor: '#2a2a3c',
-        opacity: visibility === 'dimmed' ? 0.35 : 1,
-        verticalAlign: 'middle',
-        borderRadius: '3px',
+        height: '0.75em',
+        backgroundColor: '#333',
+        opacity: visibility === 'dimmed' ? 0.25 : 1,
+        verticalAlign: 'text-bottom',
+        borderRadius: '2px',
         margin: '0 1px',
         cursor: onClick ? 'pointer' : undefined,
         transition: 'opacity 0.15s',
@@ -72,19 +72,14 @@ function RevealedToken({ token, onClick, refCallback }: {
   )
 }
 
-export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWordClick }: RendererProps) {
+export function RedactedArticle({ article, visibilityMap, onElementRefs, onWordClick }: RendererProps) {
   const tokenElsRef = useRef<Map<string, HTMLElement>>(new Map())
-  // Use a ref for onBoundingBoxes to avoid triggering the effect when the callback identity changes
-  const onBoundingBoxesRef = useRef(onBoundingBoxes)
-  useEffect(() => { onBoundingBoxesRef.current = onBoundingBoxes })
+  const onElementRefsRef = useRef(onElementRefs)
+  useEffect(() => { onElementRefsRef.current = onElementRefs })
 
-  // Report bounding boxes after every render
+  // Pass element refs to parent after every render so it can compute fresh DOMRects on demand
   useEffect(() => {
-    const map: BoundingBoxMap = {}
-    for (const [id, el] of tokenElsRef.current.entries()) {
-      map[id] = el.getBoundingClientRect()
-    }
-    onBoundingBoxesRef.current(map)
+    onElementRefsRef.current(tokenElsRef.current)
   })
 
   function refCallback(id: string) {
@@ -94,7 +89,6 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
     }
   }
 
-  // Group tokens into consecutive runs sharing the same paragraphIndex
   type Group = { paraIdx: number; tokens: Token[] }
   const groups: Group[] = []
   for (const token of article.tokens) {
@@ -111,7 +105,6 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
     if (token.type === 'space') return <span key={token.id}>{token.text}</span>
     if (token.type === 'punct') return <span key={token.id}>{token.text}</span>
 
-    // word token
     const visibility = visibilityMap[token.id] ?? 'hidden'
     const handleClick = () => onWordClick?.(token.id)
 
@@ -137,16 +130,34 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
   }
 
   return (
-    <div style={{ fontFamily: 'Georgia, serif', lineHeight: 1.7, padding: '1.5em', maxWidth: '65ch' }}>
+    <div style={{
+      fontFamily: 'Georgia, "Linux Libertine", "Times New Roman", serif',
+      lineHeight: 1.6,
+      padding: '1.5em 2em',
+      maxWidth: '960px',
+      backgroundColor: '#fff',
+      color: '#202122',
+      fontSize: '14px',
+      minHeight: '100%',
+    }}>
       {groups.map((group, gi) => {
         const content = group.tokens.map(renderToken)
         if (group.paraIdx >= 0) {
-          return <p key={gi} style={{ margin: '0.75em 0' }}>{content}</p>
+          return <p key={gi} style={{ margin: '0.5em 0' }}>{content}</p>
         }
-        // Check if this group contains heading tokens and wrap appropriately
         const headingFmt = group.tokens.find(t => t.formatting?.startsWith('heading'))?.formatting
         const Tag = headingFmt === 'heading-1' ? 'h1' : headingFmt === 'heading-2' ? 'h2' : headingFmt === 'heading-3' ? 'h3' : 'div'
-        return <Tag key={gi} style={{ margin: '1em 0 0.25em' }}>{content}</Tag>
+        const headingStyle: React.CSSProperties = {
+          margin: '1em 0 0.25em',
+          fontFamily: 'Georgia, "Linux Libertine", serif',
+          ...(headingFmt === 'heading-2' ? {
+            fontSize: '1.5em', fontWeight: 'bold',
+            borderBottom: '1px solid #a2a9b1', paddingBottom: '0.2em',
+          } : {}),
+          ...(headingFmt === 'heading-3' ? { fontSize: '1.17em', fontWeight: 'bold' } : {}),
+          ...(headingFmt === 'heading-1' ? { fontSize: '2em', fontWeight: 'bold' } : {}),
+        }
+        return <Tag key={gi} style={headingStyle}>{content}</Tag>
       })}
     </div>
   )

@@ -12,6 +12,8 @@ import type {
   TokenId, BoundingBoxMap, StampShape, CraftHistory,
   TravelHistory, CollectedWord, LetterPool,
 } from './types'
+
+type ElementMap = Map<TokenId, HTMLElement>
 import './App.css'
 
 const MOCK_HTML = `
@@ -64,7 +66,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
 
   const articleRef = useRef<HTMLDivElement>(null)
-  const bbRef = useRef<BoundingBoxMap>({})
+  const bbRef = useRef<ElementMap>(new Map())
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const visibilityMap = useMemo(
@@ -83,8 +85,8 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2500)
   }, [])
 
-  // Use a ref-callback so bounding box updates never trigger App re-renders
-  const handleBoundingBoxes = useCallback((map: BoundingBoxMap) => {
+  // Use a ref-callback so element ref updates never trigger App re-renders
+  const handleElementRefs = useCallback((map: ElementMap) => {
     bbRef.current = map
   }, [])
 
@@ -140,9 +142,14 @@ export default function App() {
   const handleStampMouseMove = useCallback((x: number, y: number) => {
     if (!activeStamp || !articleRef.current) return
     const cRect = articleRef.current.getBoundingClientRect()
-    const hits = detectHits(activeStamp, x, y, PIXELS_PER_AREA, bbRef.current, cRect)
-    // Only highlight non-revealed words
-    setHitIds(new Set(hits.filter(id => (visibilityMap[id] ?? 'hidden') !== 'revealed')))
+    // Compute fresh DOMRects from element refs to avoid stale positions during scroll
+    const freshBBMap: BoundingBoxMap = {}
+    for (const [id, el] of bbRef.current.entries()) {
+      freshBBMap[id] = el.getBoundingClientRect()
+    }
+    const hits = detectHits(activeStamp, x, y, PIXELS_PER_AREA, freshBBMap, cRect)
+    // Only highlight words not yet collected (hidden), preventing overlap with prior stamps
+    setHitIds(new Set(hits.filter(id => (visibilityMap[id] ?? 'hidden') === 'hidden')))
   }, [activeStamp, visibilityMap])
 
   function handleArticleClick() {
@@ -158,7 +165,10 @@ export default function App() {
       setWords(inv.getWords())
       showToast(`+ ${collected} word${collected > 1 ? 's' : ''} collected!`)
     }
+    // Stamps are single-use: consume after stamping
     setHitIds(new Set())
+    setActiveStamp(null)
+    setStampMode(false)
   }
 
   function handleTravel(word: CollectedWord) {
@@ -209,14 +219,15 @@ export default function App() {
           <RedactedArticle
             article={article}
             visibilityMap={visibilityMap}
-            onBoundingBoxes={handleBoundingBoxes}
+            onElementRefs={handleElementRefs}
             onWordClick={stampMode ? undefined : handleWordClick}
           />
 
-          {/* Gold highlights for words under the stamp — fixed so scroll doesn't offset them */}
+          {/* Gold highlights for words under the stamp — compute fresh DOMRects to avoid scroll lag */}
           {stampMode && activeStamp && Array.from(hitIds).map(id => {
-            const rect = bbRef.current[id]
-            if (!rect) return null
+            const el = bbRef.current.get(id)
+            if (!el) return null
+            const rect = el.getBoundingClientRect()
             return (
               <div
                 key={id}
