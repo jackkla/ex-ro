@@ -7,6 +7,7 @@ import { craft } from './modules/StampCrafter'
 import { createStampShapeEngine } from './modules/StampShapeEngine'
 import { detectHits } from './modules/HitDetector'
 import { createTravelManager } from './modules/TravelManager'
+import { SCRABBLE_VALUES } from './utils'
 import type {
   TokenId, BoundingBoxMap, StampShape, PlacedStamp, CraftHistory,
   TravelHistory, CollectedWord, LetterPool,
@@ -39,6 +40,19 @@ const MOCK_HTML = `
   it a pale <a href="/wiki/Yellow" class="wikilink">yellow</a> hue.</p>
 </div>`
 
+function makeInitialLetterPool(): LetterPool {
+  const pool: LetterPool = {}
+  for (const char of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    pool[char] = [{
+      char,
+      formatting: 'plain',
+      scrabbleValue: SCRABBLE_VALUES[char] ?? 1,
+      formattingMultiplier: 1,
+    }]
+  }
+  return pool
+}
+
 const inv = createInventoryManager(30)
 const shapeEngine = createStampShapeEngine()
 const travelMgr = createTravelManager()
@@ -47,7 +61,7 @@ export default function App() {
   const article = useMemo(() => tokenize(MOCK_HTML, 'Saturn'), [])
 
   const [words, setWords]               = useState<CollectedWord[]>([])
-  const [letterPool, setLetterPool]     = useState<LetterPool>({})
+  const [letterPool, setLetterPool]     = useState<LetterPool>(makeInitialLetterPool)
   const [revealedIds]                   = useState<Set<TokenId>>(new Set())
   const [craftHistory, setCraftHistory] = useState<CraftHistory>({})
   const [travelHistory, setTravelHistory] = useState<TravelHistory>({ travel: 0 })
@@ -56,7 +70,6 @@ export default function App() {
   const [crafting, setCrafting]   = useState(false)
   const [activeStamp, setActiveStamp]   = useState<StampShape | null>(null)
   const [placedStamps, setPlacedStamps] = useState<PlacedStamp[]>([])
-  const [overlayH, setOverlayH]         = useState(600)
   const [toast, setToast]               = useState<string | null>(null)
 
   const articleRef = useRef<HTMLDivElement>(null)
@@ -70,6 +83,9 @@ export default function App() {
   const mouseContentRef = useRef({ x: -9999, y: -9999 })
   const cursorHoleRef   = useRef<SVGGElement>(null)
   const cursorImgRef    = useRef<SVGGElement>(null)
+  // Stamp group inside the mask: transform updated each RAF tick to convert
+  // content-space coords to viewport-space via getBoundingClientRect().
+  const stampGroupRef   = useRef<SVGGElement>(null)
 
   const visibilityMap = useMemo(
     () => resolveVisibility(article, words, revealedIds),
@@ -91,17 +107,7 @@ export default function App() {
     bbRef.current = map
   }, [])
 
-  // Track overlay height so the absolute SVG always covers full scroll content
-  useEffect(() => {
-    const panel = articleRef.current
-    if (!panel) return
-    const obs = new ResizeObserver(() => setOverlayH(panel.scrollHeight))
-    obs.observe(panel)
-    setOverlayH(panel.scrollHeight)
-    return () => obs.disconnect()
-  }, [])
-
-  // RAF loop: advances rotation + updates cursor DOM nodes directly (no re-render)
+  // RAF loop: advances rotation + updates cursor/stamp group transforms directly (no re-render)
   useEffect(() => {
     if (!activeStamp) {
       if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
@@ -119,6 +125,16 @@ export default function App() {
       const { x: cx, y: cy } = mouseContentRef.current
       const offscreen = vx < -900
 
+      // Keep stamp group transform in sync with article panel's current viewport position
+      const panelRect = articleRef.current?.getBoundingClientRect()
+      if (panelRect && stampGroupRef.current) {
+        stampGroupRef.current.setAttribute(
+          'transform',
+          `translate(${panelRect.left}, ${panelRect.top})`,
+        )
+      }
+
+      // Cursor image at viewport coords (separate fixed SVG)
       if (cursorImgRef.current) {
         cursorImgRef.current.style.display = offscreen ? 'none' : 'block'
         if (!offscreen) {
@@ -128,6 +144,8 @@ export default function App() {
           )
         }
       }
+
+      // Cursor hole at content-relative coords (inside stamp group, gets group offset applied)
       if (cursorHoleRef.current) {
         cursorHoleRef.current.style.display = offscreen ? 'none' : 'block'
         if (!offscreen) {
@@ -144,18 +162,19 @@ export default function App() {
     return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current) }
   }, [activeStamp])
 
-  // Mouse tracking for stamp cursor (content + viewport coords)
+  // Mouse tracking for stamp cursor (viewport coords for cursor image, content coords for mask hole)
   useEffect(() => {
     if (!activeStamp) return
-    const panel = articleRef.current
-    if (!panel) return
 
     const onMove = (e: MouseEvent) => {
       mouseViewRef.current = { x: e.clientX, y: e.clientY }
-      const rect = panel.getBoundingClientRect()
-      mouseContentRef.current = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top + panel.scrollTop,
+      const panel = articleRef.current
+      if (panel) {
+        const rect = panel.getBoundingClientRect()
+        mouseContentRef.current = {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        }
       }
     }
     const onLeave = () => {
@@ -163,11 +182,11 @@ export default function App() {
       mouseContentRef.current = { x: -9999, y: -9999 }
     }
 
-    panel.addEventListener('mousemove', onMove)
-    panel.addEventListener('mouseleave', onLeave)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseleave', onLeave)
     return () => {
-      panel.removeEventListener('mousemove', onMove)
-      panel.removeEventListener('mouseleave', onLeave)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseleave', onLeave)
       mouseViewRef.current    = { x: -9999, y: -9999 }
       mouseContentRef.current = { x: -9999, y: -9999 }
     }
@@ -200,8 +219,9 @@ export default function App() {
 
     const panel = articleRef.current
     const rect  = panel.getBoundingClientRect()
+    // Content-relative coords: panel doesn't scroll internally (page scrolls)
     const contentX = e.clientX - rect.left
-    const contentY = e.clientY - rect.top + panel.scrollTop
+    const contentY = e.clientY - rect.top
 
     const newStamp: PlacedStamp = {
       id: `s${Date.now()}`,
@@ -213,7 +233,7 @@ export default function App() {
 
     setPlacedStamps(prev => [...prev, newStamp])
 
-    const hits      = detectHits(newStamp, bbRef.current, rect, panel.scrollTop)
+    const hits      = detectHits(newStamp, bbRef.current, rect)
     const toCollect = hits.filter(id => visibilityMap[id] !== 'revealed')
 
     let collected = 0
@@ -269,7 +289,7 @@ export default function App() {
       {toast && <div className="toast">{toast}</div>}
 
       <div className="layout">
-        {/* Article: always covered by black overlay; stamps cut holes to reveal + collect */}
+        {/* Article: always covered by fixed black overlay; stamps cut holes to reveal + collect */}
         <main
           className={`article-panel${activeStamp ? ' stamp-mode' : ''}`}
           ref={articleRef}
@@ -280,57 +300,6 @@ export default function App() {
             visibilityMap={visibilityMap}
             onBoundingBoxes={handleBoundingBoxes}
           />
-
-          {/* Dark SVG overlay — always present; stamp images punch holes in the mask */}
-          <svg
-            style={{
-              position: 'absolute',
-              top: 0, left: 0,
-              width: '100%',
-              height: overlayH,
-              pointerEvents: 'none',
-              zIndex: 10,
-              overflow: 'visible',
-            }}
-          >
-            <defs>
-              <mask id="stamp-mask">
-                <rect width="100%" height={overlayH} fill="white" />
-                {placedStamps.map(s => (
-                  <g
-                    key={s.id}
-                    transform={`translate(${s.cx}, ${s.cy}) rotate(${(s.angle * 180) / Math.PI}) scale(${s.shapeDef.finalScale})`}
-                  >
-                    <image
-                      href={s.shapeDef.dataURL}
-                      x={-s.shapeDef.size / 2}
-                      y={-s.shapeDef.size / 2}
-                      width={s.shapeDef.size}
-                      height={s.shapeDef.size}
-                    />
-                  </g>
-                ))}
-                {/* Live cursor preview hole — transform updated each RAF tick via ref */}
-                <g ref={cursorHoleRef} style={{ display: 'none' }}>
-                  {activeStamp && (
-                    <image
-                      href={activeStamp.dataURL}
-                      x={-activeStamp.size / 2}
-                      y={-activeStamp.size / 2}
-                      width={activeStamp.size}
-                      height={activeStamp.size}
-                    />
-                  )}
-                </g>
-              </mask>
-            </defs>
-            <rect
-              width="100%"
-              height={overlayH}
-              fill="rgba(0,0,0,0.93)"
-              mask="url(#stamp-mask)"
-            />
-          </svg>
         </main>
 
         <aside className="sidebar">
@@ -423,6 +392,62 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {/* Fixed overlay SVG: covers the viewport, mask punches holes where stamps land.
+          stampGroupRef transform is updated each RAF tick using getBoundingClientRect()
+          to convert content-space stamp coords to current viewport coords. */}
+      <svg
+        style={{
+          position: 'fixed',
+          top: 0, left: 0,
+          width: '100vw', height: '100vh',
+          pointerEvents: 'none',
+          zIndex: 10,
+          overflow: 'visible',
+        }}
+      >
+        <defs>
+          <mask id="stamp-mask" maskUnits="userSpaceOnUse" x="-9999" y="-9999" width="19998" height="19998">
+            {/* White fills everything — dark overlay is visible everywhere by default */}
+            <rect x="-9999" y="-9999" width="19998" height="19998" fill="white" />
+            {/* Stamp group: translate converts content-space coords → viewport-space each RAF tick */}
+            <g ref={stampGroupRef}>
+              {placedStamps.map(s => (
+                <g
+                  key={s.id}
+                  transform={`translate(${s.cx}, ${s.cy}) rotate(${(s.angle * 180) / Math.PI}) scale(${s.shapeDef.finalScale})`}
+                >
+                  <image
+                    href={s.shapeDef.dataURL}
+                    x={-s.shapeDef.size / 2}
+                    y={-s.shapeDef.size / 2}
+                    width={s.shapeDef.size}
+                    height={s.shapeDef.size}
+                  />
+                </g>
+              ))}
+              {/* Live cursor preview hole — transform updated each RAF tick */}
+              <g ref={cursorHoleRef} style={{ display: 'none' }}>
+                {activeStamp && (
+                  <image
+                    href={activeStamp.dataURL}
+                    x={-activeStamp.size / 2}
+                    y={-activeStamp.size / 2}
+                    width={activeStamp.size}
+                    height={activeStamp.size}
+                  />
+                )}
+              </g>
+            </g>
+          </mask>
+        </defs>
+        <rect
+          x="-9999" y="-9999"
+          width="19998" height="19998"
+          fill="rgba(0,0,0,0.93)"
+          mask="url(#stamp-mask)"
+        />
+      </svg>
 
       {/* Fixed cursor: rotating stamp image shown at mouse viewport position */}
       {activeStamp && (

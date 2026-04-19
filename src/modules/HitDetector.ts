@@ -18,35 +18,36 @@ function isPointInSilhouette(px: number, py: number, stamp: PlacedStamp): boolea
   return false
 }
 
+// panelRect = articleRef.current.getBoundingClientRect() at time of placement.
+// Stamp positions (cx/cy) are panel-content-relative (viewport coords minus panel origin).
+// domRect entries are viewport-relative from the same getBoundingClientRect call,
+// so subtracting panelRect.left/top converts them to the same content space.
 export function detectHits(
   stamp: PlacedStamp,
   boundingBoxes: BoundingBoxMap,
   panelRect: DOMRect,
-  panelScrollTop: number,
 ): TokenId[] {
   const hits: TokenId[] = []
 
   for (const [tokenId, domRect] of Object.entries(boundingBoxes)) {
-    // Convert viewport DOMRect to panel content coordinates
     const L = domRect.left - panelRect.left
-    const T = domRect.top - panelRect.top + panelScrollTop
+    const T = domRect.top  - panelRect.top
     const R = L + domRect.width
     const B = T + domRect.height
-    const boxCx = (L + R) / 2
-    const boxCy = (T + B) / 2
+    const bx = (L + R) / 2
+    const by = (T + B) / 2
 
     const points: [number, number][] = [
-      [L, T], [boxCx, T], [R, T],
-      [L, boxCy], [boxCx, boxCy], [R, boxCy],
-      [L, B], [boxCx, B], [R, B],
+      [L, T], [bx, T], [R, T],
+      [L, by], [bx, by], [R, by],
+      [L, B], [bx, B], [R, B],
     ]
 
-    let hitCount = 0
+    let hits_ = 0
     for (const [px, py] of points) {
-      if (isPointInSilhouette(px, py, stamp)) hitCount++
+      if (isPointInSilhouette(px, py, stamp)) hits_++
     }
-
-    if (hitCount >= 5) hits.push(tokenId as TokenId)
+    if (hits_ >= 5) hits.push(tokenId as TokenId)
   }
 
   return hits
