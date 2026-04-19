@@ -5,7 +5,6 @@ export type RendererProps = {
   article: TokenizedArticle
   visibilityMap: VisibilityMap
   onBoundingBoxes: (map: BoundingBoxMap) => void
-  onWordClick?: (tokenId: TokenId) => void
 }
 
 function formattingStyle(f: Formatting): React.CSSProperties {
@@ -18,64 +17,49 @@ function formattingStyle(f: Formatting): React.CSSProperties {
     case 'heading-3': return { fontSize: '1.17em', fontWeight: 'bold' }
     case 'superscript': return { verticalAlign: 'super', fontSize: '0.75em' }
     case 'subscript': return { verticalAlign: 'sub', fontSize: '0.75em' }
-    case 'wikilink': return { textDecoration: 'underline', color: '#3366cc' }
+    case 'wikilink': return { textDecoration: 'underline', color: '#0645ad', fontWeight: 'bold' }
     default: return {}
   }
 }
 
-function RedactBox({ token, visibility, onClick, refCallback }: {
+// Every word is always rendered as real text; a redact bar sits on top
+// and disappears (opacity → 0) once the word has been collected/revealed.
+function WordToken({ token, revealed, refCallback }: {
   token: Token
-  visibility: 'hidden' | 'dimmed'
-  onClick?: () => void
+  revealed: boolean
   refCallback: (el: HTMLElement | null) => void
 }) {
-  const width = `${Math.max(token.text.length * 0.6, 0.5)}em`
-  return (
-    <span
-      ref={refCallback}
-      data-token-id={token.id}
-      onClick={onClick}
-      style={{
-        display: 'inline-block',
-        width,
-        height: '0.9em',
-        backgroundColor: '#1a1a1a',
-        opacity: visibility === 'dimmed' ? 0.3 : 1,
-        verticalAlign: 'middle',
-        borderRadius: '3px',
-        margin: '0 1px',
-        cursor: onClick ? 'pointer' : undefined,
-        transition: 'opacity 0.15s',
-      }}
-    />
-  )
-}
-
-function RevealedToken({ token, onClick, refCallback }: {
-  token: Token
-  onClick?: () => void
-  refCallback: (el: HTMLElement | null) => void
-}) {
-  const style: React.CSSProperties = {
+  const textStyle: React.CSSProperties = {
     color: '#202122',
     ...formattingStyle(token.formatting),
-    ...(token.isWikilink ? { textDecoration: 'underline', color: '#0645ad', cursor: 'default' } : {}),
   }
+
   return (
     <span
       ref={refCallback}
       data-token-id={token.id}
-      onClick={onClick}
-      style={style}
+      style={{ position: 'relative', display: 'inline' }}
     >
-      {token.text}
+      <span style={textStyle}>{token.text}</span>
+      {/* Redact bar: covers word until collected via stamp */}
+      <span
+        style={{
+          position: 'absolute',
+          inset: '-1px -1px -1px -1px',
+          background: token.isWikilink ? '#1a2a50' : '#1a1a1a',
+          border: `1px solid ${token.isWikilink ? '#2a3a70' : '#2d2d2d'}`,
+          borderRadius: '3px',
+          pointerEvents: 'none',
+          transition: 'opacity 0.14s ease-in',
+          opacity: revealed ? 0 : 1,
+        }}
+      />
     </span>
   )
 }
 
-export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWordClick }: RendererProps) {
+export function RedactedArticle({ article, visibilityMap, onBoundingBoxes }: RendererProps) {
   const tokenElsRef = useRef<Map<string, HTMLElement>>(new Map())
-  // Use a ref for onBoundingBoxes to avoid triggering the effect when the callback identity changes
   const onBoundingBoxesRef = useRef(onBoundingBoxes)
   useEffect(() => { onBoundingBoxesRef.current = onBoundingBoxes })
 
@@ -95,7 +79,6 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
     }
   }
 
-  // Group tokens into consecutive runs sharing the same paragraphIndex
   type Group = { paraIdx: number; tokens: Token[] }
   const groups: Group[] = []
   for (const token of article.tokens) {
@@ -110,44 +93,29 @@ export function RedactedArticle({ article, visibilityMap, onBoundingBoxes, onWor
   function renderToken(token: Token): React.ReactNode {
     if (token.type === 'newline') return <br key={token.id} />
     if (token.type === 'space') return <span key={token.id}>{token.text}</span>
-    if (token.type === 'punct') return <span key={token.id}>{token.text}</span>
+    if (token.type === 'punct') return <span key={token.id} style={{ color: '#202122' }}>{token.text}</span>
 
-    // word token
-    const visibility = visibilityMap[token.id] ?? 'hidden'
-    const handleClick = () => onWordClick?.(token.id)
-
-    if (visibility === 'revealed') {
-      return (
-        <RevealedToken
-          key={token.id}
-          token={token}
-          onClick={onWordClick ? handleClick : undefined}
-          refCallback={refCallback(token.id)}
-        />
-      )
-    }
+    const revealed = visibilityMap[token.id] === 'revealed'
     return (
-      <RedactBox
+      <WordToken
         key={token.id}
         token={token}
-        visibility={visibility}
-        onClick={onWordClick ? handleClick : undefined}
+        revealed={revealed}
         refCallback={refCallback(token.id)}
       />
     )
   }
 
   return (
-    <div style={{ fontFamily: 'Georgia, serif', lineHeight: 1.7, padding: '1.5em', maxWidth: '65ch' }}>
+    <div style={{ fontFamily: 'Georgia, serif', lineHeight: 1.7, padding: '1.5em', maxWidth: '65ch', color: '#202122' }}>
       {groups.map((group, gi) => {
         const content = group.tokens.map(renderToken)
         if (group.paraIdx >= 0) {
           return <p key={gi} style={{ margin: '0.75em 0' }}>{content}</p>
         }
-        // Check if this group contains heading tokens and wrap appropriately
         const headingFmt = group.tokens.find(t => t.formatting?.startsWith('heading'))?.formatting
         const Tag = headingFmt === 'heading-1' ? 'h1' : headingFmt === 'heading-2' ? 'h2' : headingFmt === 'heading-3' ? 'h3' : 'div'
-        return <Tag key={gi} style={{ margin: '1em 0 0.25em' }}>{content}</Tag>
+        return <Tag key={gi} style={{ margin: '1em 0 0.25em', color: '#202122' }}>{content}</Tag>
       })}
     </div>
   )

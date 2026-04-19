@@ -84,40 +84,19 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 
-.stamp-btn {
+.active-stamp-badge {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  color: var(--text);
+  background: rgba(201, 168, 76, 0.12);
+  border: 1px solid var(--accent);
+  color: var(--accent);
   padding: 0.25rem 0.7rem;
   border-radius: 5px;
-  cursor: pointer;
   font-size: 0.82rem;
-  transition: background 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
-.stamp-btn:hover { background: var(--surface3); }
-.stamp-btn.active {
-  background: rgba(201, 168, 76, 0.12);
-  border-color: var(--accent);
-  color: var(--accent);
-}
 .stamp-word { font-family: var(--font-mono); }
-.stamp-state {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  padding: 0.1em 0.4em;
-  border-radius: 3px;
-  background: var(--surface3);
-}
-.stamp-btn.active .stamp-state {
-  color: var(--accent);
-  background: rgba(201, 168, 76, 0.15);
-}
 
 /* ── Toast ────────────────────────────────────────────── */
 
@@ -262,6 +241,7 @@ html, body, #root {
 }
 
 .word-btns { display: flex; gap: 0.2rem; flex-shrink: 0; }
+.btn-scrap { flex-shrink: 0; }
 
 .btn-sm {
   border: 1px solid var(--border);

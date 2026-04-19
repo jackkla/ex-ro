@@ -39,7 +39,6 @@ const MOCK_HTML = `
   it a pale <a href="/wiki/Yellow" class="wikilink">yellow</a> hue.</p>
 </div>`
 
-// Module instances — created once outside React tree
 const inv = createInventoryManager(30)
 const shapeEngine = createStampShapeEngine()
 const travelMgr = createTravelManager()
@@ -47,31 +46,30 @@ const travelMgr = createTravelManager()
 export default function App() {
   const article = useMemo(() => tokenize(MOCK_HTML, 'Saturn'), [])
 
-  const [words, setWords] = useState<CollectedWord[]>([])
-  const [letterPool, setLetterPool] = useState<LetterPool>({})
-  const [revealedIds, setRevealedIds] = useState<Set<TokenId>>(new Set())
+  const [words, setWords]               = useState<CollectedWord[]>([])
+  const [letterPool, setLetterPool]     = useState<LetterPool>({})
+  const [revealedIds]                   = useState<Set<TokenId>>(new Set())
   const [craftHistory, setCraftHistory] = useState<CraftHistory>({})
   const [travelHistory, setTravelHistory] = useState<TravelHistory>({ travel: 0 })
 
   const [craftWord, setCraftWord] = useState('')
-  const [crafting, setCrafting] = useState(false)
-  const [activeStamp, setActiveStamp] = useState<StampShape | null>(null)
-  const [stampMode, setStampMode] = useState(false)
+  const [crafting, setCrafting]   = useState(false)
+  const [activeStamp, setActiveStamp]   = useState<StampShape | null>(null)
   const [placedStamps, setPlacedStamps] = useState<PlacedStamp[]>([])
-  const [overlayH, setOverlayH] = useState(600)
-  const [toast, setToast] = useState<string | null>(null)
+  const [overlayH, setOverlayH]         = useState(600)
+  const [toast, setToast]               = useState<string | null>(null)
 
   const articleRef = useRef<HTMLDivElement>(null)
-  const bbRef = useRef<BoundingBoxMap>({})
+  const bbRef      = useRef<BoundingBoxMap>({})
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // RAF / cursor refs — updated every frame without triggering React re-renders
-  const rotRef = useRef(0)
-  const rafRef = useRef<number | undefined>(undefined)
-  const mouseViewRef = useRef({ x: -9999, y: -9999 })
+  // RAF / cursor refs — direct DOM mutation, no re-renders per frame
+  const rotRef          = useRef(0)
+  const rafRef          = useRef<number | undefined>(undefined)
+  const mouseViewRef    = useRef({ x: -9999, y: -9999 })
   const mouseContentRef = useRef({ x: -9999, y: -9999 })
-  const cursorHoleRef = useRef<SVGGElement>(null)
-  const cursorImgRef = useRef<SVGGElement>(null)
+  const cursorHoleRef   = useRef<SVGGElement>(null)
+  const cursorImgRef    = useRef<SVGGElement>(null)
 
   const visibilityMap = useMemo(
     () => resolveVisibility(article, words, revealedIds),
@@ -93,7 +91,7 @@ export default function App() {
     bbRef.current = map
   }, [])
 
-  // Track overlay height so the absolute SVG covers the full scroll content
+  // Track overlay height so the absolute SVG always covers full scroll content
   useEffect(() => {
     const panel = articleRef.current
     if (!panel) return
@@ -103,11 +101,11 @@ export default function App() {
     return () => obs.disconnect()
   }, [])
 
-  // RAF loop: advances rotation + syncs cursor DOM nodes directly (no re-render)
+  // RAF loop: advances rotation + updates cursor DOM nodes directly (no re-render)
   useEffect(() => {
-    if (!stampMode || !activeStamp) {
+    if (!activeStamp) {
       if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
-      if (cursorImgRef.current) cursorImgRef.current.style.display = 'none'
+      if (cursorImgRef.current)  cursorImgRef.current.style.display  = 'none'
       if (cursorHoleRef.current) cursorHoleRef.current.style.display = 'none'
       return
     }
@@ -130,7 +128,6 @@ export default function App() {
           )
         }
       }
-
       if (cursorHoleRef.current) {
         cursorHoleRef.current.style.display = offscreen ? 'none' : 'block'
         if (!offscreen) {
@@ -144,14 +141,12 @@ export default function App() {
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
-    }
-  }, [stampMode, activeStamp])
+    return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current) }
+  }, [activeStamp])
 
   // Mouse tracking for stamp cursor (content + viewport coords)
   useEffect(() => {
-    if (!stampMode) return
+    if (!activeStamp) return
     const panel = articleRef.current
     if (!panel) return
 
@@ -164,7 +159,7 @@ export default function App() {
       }
     }
     const onLeave = () => {
-      mouseViewRef.current = { x: -9999, y: -9999 }
+      mouseViewRef.current    = { x: -9999, y: -9999 }
       mouseContentRef.current = { x: -9999, y: -9999 }
     }
 
@@ -173,36 +168,10 @@ export default function App() {
     return () => {
       panel.removeEventListener('mousemove', onMove)
       panel.removeEventListener('mouseleave', onLeave)
-      mouseViewRef.current = { x: -9999, y: -9999 }
+      mouseViewRef.current    = { x: -9999, y: -9999 }
       mouseContentRef.current = { x: -9999, y: -9999 }
     }
-  }, [stampMode])
-
-  const handleWordClick = useCallback((tokenId: TokenId) => {
-    const token = article.tokens.find(t => t.id === tokenId)
-    if (!token || token.type !== 'word') return
-    const result = inv.addWord(token)
-    if (result.success) {
-      setWords(inv.getWords())
-      showToast(`+ "${token.text}"`)
-    } else {
-      showToast('Inventory full!')
-    }
-  }, [article, showToast])
-
-  function handleReveal(wordId: string) {
-    const word = words.find(w => w.id === wordId)
-    if (!word) return
-    setRevealedIds(prev => new Set([...prev, word.token.id]))
-    showToast(`Revealed "${word.token.text}"`)
-  }
-
-  function handleScrap(wordId: string) {
-    inv.scrapWord(wordId)
-    setWords(inv.getWords())
-    setLetterPool(inv.getLetterPool())
-    showToast('Scrapped → letters added')
-  }
+  }, [activeStamp])
 
   async function handleCraft() {
     const w = craftWord.trim().toLowerCase()
@@ -214,9 +183,8 @@ export default function App() {
         setLetterPool(result.updatedLetterPool)
         setCraftHistory(result.updatedHistory)
         setActiveStamp(result.stamp)
-        setStampMode(true)
         setCraftWord('')
-        showToast(`${result.stamp.emoji} "${result.stamp.word}" stamp crafted!`)
+        showToast(`${result.stamp.emoji} "${result.stamp.word}" stamp ready!`)
       } else {
         const missing = Object.entries(result.shortfall)
           .map(([c, n]) => `${n}×${c}`).join(' ')
@@ -228,10 +196,10 @@ export default function App() {
   }
 
   function handleArticleClick(e: React.MouseEvent<HTMLElement>) {
-    if (!stampMode || !activeStamp || !articleRef.current) return
+    if (!activeStamp || !articleRef.current) return
 
     const panel = articleRef.current
-    const rect = panel.getBoundingClientRect()
+    const rect  = panel.getBoundingClientRect()
     const contentX = e.clientX - rect.left
     const contentY = e.clientY - rect.top + panel.scrollTop
 
@@ -245,8 +213,8 @@ export default function App() {
 
     setPlacedStamps(prev => [...prev, newStamp])
 
-    const hits = detectHits(newStamp, bbRef.current, rect, panel.scrollTop)
-    const toCollect = hits.filter(id => (visibilityMap[id] ?? 'hidden') !== 'revealed')
+    const hits      = detectHits(newStamp, bbRef.current, rect, panel.scrollTop)
+    const toCollect = hits.filter(id => visibilityMap[id] !== 'revealed')
 
     let collected = 0
     for (const tokenId of toCollect) {
@@ -259,8 +227,15 @@ export default function App() {
     }
   }
 
+  function handleScrap(wordId: string) {
+    inv.scrapWord(wordId)
+    setWords(inv.getWords())
+    setLetterPool(inv.getLetterPool())
+    showToast('Scrapped → letters added')
+  }
+
   function handleTravel(word: CollectedWord) {
-    const cost = travelMgr.getTravelCost('travel', travelHistory)
+    const cost   = travelMgr.getTravelCost('travel', travelHistory)
     const result = travelMgr.travel(word.token, 'travel', letterPool, travelHistory)
     if (result.success) {
       setLetterPool(result.updatedLetterPool)
@@ -273,35 +248,30 @@ export default function App() {
     }
   }
 
-  const cap = inv.getCapacity()
+  const cap          = inv.getCapacity()
   const letterEntries = Object.entries(letterPool).sort(([a], [b]) => a.localeCompare(b))
-  const travelCost = travelMgr.getTravelCost('travel', travelHistory)
-  const canTravel = travelMgr.canAfford('travel', letterPool, travelHistory)
-  const showOverlay = placedStamps.length > 0 || stampMode
+  const travelCost   = travelMgr.getTravelCost('travel', travelHistory)
+  const canTravel    = travelMgr.canAfford('travel', letterPool, travelHistory)
 
   return (
     <div className="app">
       <header className="app-header">
         <span className="logo">EX<span className="logo-dot">✦</span>RO</span>
         <span className="header-title">Saturn — Wikipedia</span>
-        <span className="header-hint">click black boxes to collect · scrap words for letters · craft stamps</span>
+        <span className="header-hint">craft a stamp · stamp the article to collect words</span>
         {activeStamp && (
-          <button
-            className={`stamp-btn ${stampMode ? 'active' : ''}`}
-            onClick={() => { setStampMode(m => !m) }}
-          >
-            {activeStamp.emoji}
-            <span className="stamp-word">{activeStamp.word}</span>
-            <span className="stamp-state">{stampMode ? 'stamping' : 'paused'}</span>
-          </button>
+          <span className="active-stamp-badge">
+            {activeStamp.emoji} <span className="stamp-word">{activeStamp.word}</span>
+          </span>
         )}
       </header>
 
       {toast && <div className="toast">{toast}</div>}
 
       <div className="layout">
+        {/* Article: always covered by black overlay; stamps cut holes to reveal + collect */}
         <main
-          className={`article-panel${stampMode ? ' stamp-mode' : ''}`}
+          className={`article-panel${activeStamp ? ' stamp-mode' : ''}`}
           ref={articleRef}
           onClick={handleArticleClick}
         >
@@ -309,41 +279,40 @@ export default function App() {
             article={article}
             visibilityMap={visibilityMap}
             onBoundingBoxes={handleBoundingBoxes}
-            onWordClick={stampMode ? undefined : handleWordClick}
           />
 
-          {/* SVG overlay: dark mask cut through by emoji silhouette stamps */}
-          {showOverlay && activeStamp && (
-            <svg
-              style={{
-                position: 'absolute',
-                top: 0, left: 0,
-                width: '100%',
-                height: overlayH,
-                pointerEvents: 'none',
-                zIndex: 10,
-                overflow: 'visible',
-              }}
-            >
-              <defs>
-                <mask id="stamp-mask">
-                  <rect width="100%" height={overlayH} fill="white" />
-                  {placedStamps.map(s => (
-                    <g
-                      key={s.id}
-                      transform={`translate(${s.cx}, ${s.cy}) rotate(${(s.angle * 180) / Math.PI}) scale(${s.shapeDef.finalScale})`}
-                    >
-                      <image
-                        href={s.shapeDef.dataURL}
-                        x={-s.shapeDef.size / 2}
-                        y={-s.shapeDef.size / 2}
-                        width={s.shapeDef.size}
-                        height={s.shapeDef.size}
-                      />
-                    </g>
-                  ))}
-                  {/* Live cursor preview hole — transform updated directly by RAF */}
-                  <g ref={cursorHoleRef} style={{ display: 'none' }}>
+          {/* Dark SVG overlay — always present; stamp images punch holes in the mask */}
+          <svg
+            style={{
+              position: 'absolute',
+              top: 0, left: 0,
+              width: '100%',
+              height: overlayH,
+              pointerEvents: 'none',
+              zIndex: 10,
+              overflow: 'visible',
+            }}
+          >
+            <defs>
+              <mask id="stamp-mask">
+                <rect width="100%" height={overlayH} fill="white" />
+                {placedStamps.map(s => (
+                  <g
+                    key={s.id}
+                    transform={`translate(${s.cx}, ${s.cy}) rotate(${(s.angle * 180) / Math.PI}) scale(${s.shapeDef.finalScale})`}
+                  >
+                    <image
+                      href={s.shapeDef.dataURL}
+                      x={-s.shapeDef.size / 2}
+                      y={-s.shapeDef.size / 2}
+                      width={s.shapeDef.size}
+                      height={s.shapeDef.size}
+                    />
+                  </g>
+                ))}
+                {/* Live cursor preview hole — transform updated each RAF tick via ref */}
+                <g ref={cursorHoleRef} style={{ display: 'none' }}>
+                  {activeStamp && (
                     <image
                       href={activeStamp.dataURL}
                       x={-activeStamp.size / 2}
@@ -351,17 +320,17 @@ export default function App() {
                       width={activeStamp.size}
                       height={activeStamp.size}
                     />
-                  </g>
-                </mask>
-              </defs>
-              <rect
-                width="100%"
-                height={overlayH}
-                fill="rgba(0,0,0,0.92)"
-                mask="url(#stamp-mask)"
-              />
-            </svg>
-          )}
+                  )}
+                </g>
+              </mask>
+            </defs>
+            <rect
+              width="100%"
+              height={overlayH}
+              fill="rgba(0,0,0,0.93)"
+              mask="url(#stamp-mask)"
+            />
+          </svg>
         </main>
 
         <aside className="sidebar">
@@ -371,17 +340,14 @@ export default function App() {
               <span className="pill">{cap.used}/{cap.max}</span>
             </div>
             {words.length === 0
-              ? <p className="hint">Click any ▮▮▮ in the article to collect it</p>
+              ? <p className="hint">Craft a stamp below, then stamp the article to collect words</p>
               : (
                 <ul className="word-list">
                   {words.map(w => (
                     <li key={w.id} className={`word-item fmt-${w.token.formatting}`}>
                       <span className="word-text">{w.token.text}</span>
                       {w.token.isWikilink && <span className="wiki-badge">↗</span>}
-                      <div className="word-btns">
-                        <button className="btn-sm btn-reveal" onClick={() => handleReveal(w.id)}>reveal</button>
-                        <button className="btn-sm btn-scrap" onClick={() => handleScrap(w.id)}>scrap</button>
-                      </div>
+                      <button className="btn-sm btn-scrap" onClick={() => handleScrap(w.id)}>scrap</button>
                     </li>
                   ))}
                 </ul>
@@ -458,14 +424,13 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Fixed cursor SVG: shows rotating stamp image at mouse viewport position */}
-      {stampMode && activeStamp && (
+      {/* Fixed cursor: rotating stamp image shown at mouse viewport position */}
+      {activeStamp && (
         <svg
           style={{
             position: 'fixed',
             top: 0, left: 0,
-            width: '100vw',
-            height: '100vh',
+            width: '100vw', height: '100vh',
             pointerEvents: 'none',
             zIndex: 50,
             overflow: 'visible',

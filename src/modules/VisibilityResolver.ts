@@ -11,10 +11,8 @@ export function resolveVisibility(
   for (const token of article.tokens) {
     if (token.type !== 'word') {
       map[token.id] = 'revealed'
-    } else if (revealedTokenIds.has(token.id)) {
+    } else if (revealedTokenIds.has(token.id) || collectedTexts.has(token.text.toLowerCase())) {
       map[token.id] = 'revealed'
-    } else if (collectedTexts.has(token.text.toLowerCase())) {
-      map[token.id] = 'dimmed'
     } else {
       map[token.id] = 'hidden'
     }
