@@ -55,10 +55,18 @@ export type CraftHistory = Record<string, number>
 export type StampShape = {
   word: string
   emoji: string
-  svgPath: string
-  naturalWidth: number
-  naturalHeight: number
-  area: number
+  dataURL: string      // canvas-rendered emoji silhouette as PNG data URL
+  bitmask: Uint8Array  // 1 = inside silhouette, 0 = outside
+  size: number         // canvas dimension (always 128)
+  finalScale: number   // scrabble-score-based visual scale factor
+}
+
+export type PlacedStamp = {
+  id: string
+  cx: number       // content-space X (panel-relative, scroll-adjusted)
+  cy: number       // content-space Y
+  angle: number    // radians at time of placement
+  shapeDef: StampShape
 }
 
 export type TravelHistory = Record<string, number>

@@ -39,8 +39,8 @@ function RedactBox({ token, visibility, onClick, refCallback }: {
         display: 'inline-block',
         width,
         height: '0.9em',
-        backgroundColor: '#2a2a3c',
-        opacity: visibility === 'dimmed' ? 0.35 : 1,
+        backgroundColor: '#1a1a1a',
+        opacity: visibility === 'dimmed' ? 0.3 : 1,
         verticalAlign: 'middle',
         borderRadius: '3px',
         margin: '0 1px',
@@ -57,8 +57,9 @@ function RevealedToken({ token, onClick, refCallback }: {
   refCallback: (el: HTMLElement | null) => void
 }) {
   const style: React.CSSProperties = {
+    color: '#202122',
     ...formattingStyle(token.formatting),
-    ...(token.isWikilink ? { textDecoration: 'underline', color: '#3366cc', cursor: 'default' } : {}),
+    ...(token.isWikilink ? { textDecoration: 'underline', color: '#0645ad', cursor: 'default' } : {}),
   }
   return (
     <span

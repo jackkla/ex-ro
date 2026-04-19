@@ -5,7 +5,6 @@ export type StampShapeEngineConfig = {
   anthropicApiKey?: string
 }
 
-// Simple fallback: common words → emoji
 const WORD_EMOJI_FALLBACK: Record<string, string> = {
   star: '⭐', sun: '☀️', moon: '🌙', heart: '❤️', fire: '🔥',
   tree: '🌳', flower: '🌸', cloud: '☁️', wave: '🌊', mountain: '⛰️',
@@ -19,76 +18,37 @@ const WORD_EMOJI_FALLBACK: Record<string, string> = {
   crystal: '🔮', gem: '💎', skull: '💀', ghost: '👻', alien: '👾',
 }
 
-function computeArea(word: string): number {
-  return word.toUpperCase().split('').reduce((sum, ch) => sum + (SCRABBLE_VALUES[ch] ?? 0), 0)
+function computeFinalScale(word: string): number {
+  const score = word.toUpperCase().split('').reduce((sum, ch) => sum + (SCRABBLE_VALUES[ch] ?? 1), 0)
+  return Math.min(2.5, 0.6 + score * 0.05)
 }
 
-// Returns Twemoji CDN codepoint string for an emoji character
-function emojiToCDNCode(emoji: string): string {
-  const codepoints: string[] = []
-  for (const char of emoji) {
-    const cp = char.codePointAt(0)
-    if (cp === undefined || cp === 0xfe0f || cp === 0x200d) continue
-    codepoints.push(cp.toString(16).toLowerCase())
+function createSilhouette(emoji: string): { dataURL: string; bitmask: Uint8Array; size: number } {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  ctx.clearRect(0, 0, size, size)
+  ctx.font = `${size * 0.75}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.05)
+
+  const imgData = ctx.getImageData(0, 0, size, size)
+  const data = imgData.data
+  const bitmask = new Uint8Array(size * size)
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] > 40) {
+      bitmask[i / 4] = 1
+      data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255
+    } else {
+      data[i + 3] = 0
+    }
   }
-  return codepoints.join('-')
-}
-
-async function fetchTwemojiPath(emoji: string): Promise<{ path: string; naturalWidth: number; naturalHeight: number } | null> {
-  const code = emojiToCDNCode(emoji)
-  if (!code) return null
-
-  const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${code}.svg`
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const svgText = await res.text()
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(svgText, 'image/svg+xml')
-    const svgEl = doc.querySelector('svg')
-    if (!svgEl) return null
-
-    const vb = (svgEl.getAttribute('viewBox') ?? '0 0 36 36').split(/\s+/).map(Number)
-    const [vbX, vbY, vbW, vbH] = vb.length === 4 ? vb : [0, 0, 36, 36]
-    const naturalWidth = vbW - vbX
-    const naturalHeight = vbH - vbY
-
-    const pathData = Array.from(doc.querySelectorAll('path, circle, rect, polygon, ellipse'))
-      .map(el => {
-        const tag = el.tagName.toLowerCase()
-        if (tag === 'path') return el.getAttribute('d') ?? ''
-        if (tag === 'circle') {
-          const cx = el.getAttribute('cx') ?? '0'
-          const cy = el.getAttribute('cy') ?? '0'
-          const r = el.getAttribute('r') ?? '0'
-          // Approximate circle as SVG path
-          return `M ${cx} ${parseFloat(cy) - parseFloat(r)} A ${r} ${r} 0 1 0 ${cx} ${parseFloat(cy) + parseFloat(r)} A ${r} ${r} 0 1 0 ${cx} ${parseFloat(cy) - parseFloat(r)} Z`
-        }
-        return ''
-      })
-      .filter(Boolean)
-      .join(' ')
-
-    if (!pathData) return null
-    return { path: pathData, naturalWidth, naturalHeight }
-  } catch {
-    return null
-  }
-}
-
-// Fallback geometric SVG paths (normalized to ~36×36 viewBox)
-function getFallbackShape(emoji: string): { path: string; naturalWidth: number; naturalHeight: number } {
-  // 5-pointed star in 36×36 space
-  void emoji
-  const points: [number, number][] = []
-  const cx = 18, cy = 18, outerR = 16, innerR = 7
-  for (let i = 0; i < 10; i++) {
-    const angle = (i * Math.PI) / 5 - Math.PI / 2
-    const r = i % 2 === 0 ? outerR : innerR
-    points.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)])
-  }
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ') + ' Z'
-  return { path, naturalWidth: 36, naturalHeight: 36 }
+  ctx.putImageData(imgData, 0, 0)
+  return { dataURL: canvas.toDataURL('image/png'), bitmask, size }
 }
 
 async function routeEmojiViaAI(word: string, apiKey: string): Promise<string> {
@@ -104,11 +64,11 @@ async function routeEmojiViaAI(word: string, apiKey: string): Promise<string> {
       max_tokens: 16,
       messages: [{
         role: 'user',
-        content: `Given the word '${word}', return the single most visually iconic emoji that represents its shape or meaning. Respond with only the emoji.`,
+        content: `Given the word '${word}', return the single most visually iconic emoji that represents its shape or meaning. If abstract or no clear visual shape, return REJECT. Respond with only the emoji or REJECT.`,
       }],
     }),
   })
-  if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`)
+  if (!response.ok) throw new Error(`API error: ${response.status}`)
   const data = await response.json() as { content: Array<{ text: string }> }
   return data.content[0].text.trim()
 }
@@ -116,7 +76,6 @@ async function routeEmojiViaAI(word: string, apiKey: string): Promise<string> {
 export function createStampShapeEngine(config: StampShapeEngineConfig = {}): {
   getShape: (word: string) => Promise<StampShape>
 } {
-  // Session-scoped caches
   const emojiCache = new Map<string, string>()
   const shapeCache = new Map<string, StampShape>()
 
@@ -128,7 +87,8 @@ export function createStampShapeEngine(config: StampShapeEngineConfig = {}): {
 
     if (!emoji && config.anthropicApiKey) {
       try {
-        emoji = await routeEmojiViaAI(lower, config.anthropicApiKey)
+        const result = await routeEmojiViaAI(lower, config.anthropicApiKey)
+        if (result !== 'REJECT') emoji = result
       } catch {
         // fall through to default
       }
@@ -145,19 +105,10 @@ export function createStampShapeEngine(config: StampShapeEngineConfig = {}): {
       if (shapeCache.has(lower)) return shapeCache.get(lower)!
 
       const emoji = await resolveEmoji(lower)
-      const area = computeArea(lower)
+      const { dataURL, bitmask, size } = createSilhouette(emoji)
+      const finalScale = computeFinalScale(lower)
 
-      const svgData = await fetchTwemojiPath(emoji) ?? getFallbackShape(emoji)
-
-      const shape: StampShape = {
-        word: lower,
-        emoji,
-        svgPath: svgData.path,
-        naturalWidth: svgData.naturalWidth,
-        naturalHeight: svgData.naturalHeight,
-        area,
-      }
-
+      const shape: StampShape = { word: lower, emoji, dataURL, bitmask, size, finalScale }
       shapeCache.set(lower, shape)
       return shape
     },

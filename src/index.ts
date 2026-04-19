@@ -7,7 +7,7 @@ export type {
   BoundingBoxMap,
   Formatting_Letter, LetterPool,
   CollectedWord, CraftHistory,
-  StampShape, TravelHistory,
+  StampShape, PlacedStamp, TravelHistory,
 } from './types'
 
 // Module 1 — ArticleTokenizer

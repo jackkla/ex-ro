@@ -1,15 +1,14 @@
-import React, { useState, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { tokenize } from './modules/ArticleTokenizer'
 import { RedactedArticle } from './modules/RedactedArticleRenderer'
 import { resolveVisibility } from './modules/VisibilityResolver'
 import { createInventoryManager } from './modules/InventoryManager'
 import { craft } from './modules/StampCrafter'
 import { createStampShapeEngine } from './modules/StampShapeEngine'
-import { StampCursor } from './modules/StampCursorAnimator'
 import { detectHits } from './modules/HitDetector'
 import { createTravelManager } from './modules/TravelManager'
 import type {
-  TokenId, BoundingBoxMap, StampShape, CraftHistory,
+  TokenId, BoundingBoxMap, StampShape, PlacedStamp, CraftHistory,
   TravelHistory, CollectedWord, LetterPool,
 } from './types'
 import './App.css'
@@ -40,8 +39,6 @@ const MOCK_HTML = `
   it a pale <a href="/wiki/Yellow" class="wikilink">yellow</a> hue.</p>
 </div>`
 
-const PIXELS_PER_AREA = 600
-
 // Module instances — created once outside React tree
 const inv = createInventoryManager(30)
 const shapeEngine = createStampShapeEngine()
@@ -60,12 +57,21 @@ export default function App() {
   const [crafting, setCrafting] = useState(false)
   const [activeStamp, setActiveStamp] = useState<StampShape | null>(null)
   const [stampMode, setStampMode] = useState(false)
-  const [hitIds, setHitIds] = useState<Set<TokenId>>(new Set())
+  const [placedStamps, setPlacedStamps] = useState<PlacedStamp[]>([])
+  const [overlayH, setOverlayH] = useState(600)
   const [toast, setToast] = useState<string | null>(null)
 
   const articleRef = useRef<HTMLDivElement>(null)
   const bbRef = useRef<BoundingBoxMap>({})
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // RAF / cursor refs — updated every frame without triggering React re-renders
+  const rotRef = useRef(0)
+  const rafRef = useRef<number | undefined>(undefined)
+  const mouseViewRef = useRef({ x: -9999, y: -9999 })
+  const mouseContentRef = useRef({ x: -9999, y: -9999 })
+  const cursorHoleRef = useRef<SVGGElement>(null)
+  const cursorImgRef = useRef<SVGGElement>(null)
 
   const visibilityMap = useMemo(
     () => resolveVisibility(article, words, revealedIds),
@@ -83,10 +89,94 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2500)
   }, [])
 
-  // Use a ref-callback so bounding box updates never trigger App re-renders
   const handleBoundingBoxes = useCallback((map: BoundingBoxMap) => {
     bbRef.current = map
   }, [])
+
+  // Track overlay height so the absolute SVG covers the full scroll content
+  useEffect(() => {
+    const panel = articleRef.current
+    if (!panel) return
+    const obs = new ResizeObserver(() => setOverlayH(panel.scrollHeight))
+    obs.observe(panel)
+    setOverlayH(panel.scrollHeight)
+    return () => obs.disconnect()
+  }, [])
+
+  // RAF loop: advances rotation + syncs cursor DOM nodes directly (no re-render)
+  useEffect(() => {
+    if (!stampMode || !activeStamp) {
+      if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
+      if (cursorImgRef.current) cursorImgRef.current.style.display = 'none'
+      if (cursorHoleRef.current) cursorHoleRef.current.style.display = 'none'
+      return
+    }
+
+    const { finalScale, size } = activeStamp
+
+    const tick = () => {
+      rotRef.current = (rotRef.current + 0.013) % (Math.PI * 2)
+      const rot = (rotRef.current * 180) / Math.PI
+      const { x: vx, y: vy } = mouseViewRef.current
+      const { x: cx, y: cy } = mouseContentRef.current
+      const offscreen = vx < -900
+
+      if (cursorImgRef.current) {
+        cursorImgRef.current.style.display = offscreen ? 'none' : 'block'
+        if (!offscreen) {
+          cursorImgRef.current.setAttribute(
+            'transform',
+            `translate(${vx}, ${vy}) rotate(${rot}) scale(${finalScale})`,
+          )
+        }
+      }
+
+      if (cursorHoleRef.current) {
+        cursorHoleRef.current.style.display = offscreen ? 'none' : 'block'
+        if (!offscreen) {
+          cursorHoleRef.current.setAttribute(
+            'transform',
+            `translate(${cx}, ${cy}) rotate(${rot}) scale(${finalScale})`,
+          )
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current)
+    }
+  }, [stampMode, activeStamp])
+
+  // Mouse tracking for stamp cursor (content + viewport coords)
+  useEffect(() => {
+    if (!stampMode) return
+    const panel = articleRef.current
+    if (!panel) return
+
+    const onMove = (e: MouseEvent) => {
+      mouseViewRef.current = { x: e.clientX, y: e.clientY }
+      const rect = panel.getBoundingClientRect()
+      mouseContentRef.current = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top + panel.scrollTop,
+      }
+    }
+    const onLeave = () => {
+      mouseViewRef.current = { x: -9999, y: -9999 }
+      mouseContentRef.current = { x: -9999, y: -9999 }
+    }
+
+    panel.addEventListener('mousemove', onMove)
+    panel.addEventListener('mouseleave', onLeave)
+    return () => {
+      panel.removeEventListener('mousemove', onMove)
+      panel.removeEventListener('mouseleave', onLeave)
+      mouseViewRef.current = { x: -9999, y: -9999 }
+      mouseContentRef.current = { x: -9999, y: -9999 }
+    }
+  }, [stampMode])
 
   const handleWordClick = useCallback((tokenId: TokenId) => {
     const token = article.tokens.find(t => t.id === tokenId)
@@ -137,28 +227,36 @@ export default function App() {
     }
   }
 
-  const handleStampMouseMove = useCallback((x: number, y: number) => {
-    if (!activeStamp || !articleRef.current) return
-    const cRect = articleRef.current.getBoundingClientRect()
-    const hits = detectHits(activeStamp, x, y, PIXELS_PER_AREA, bbRef.current, cRect)
-    // Only highlight non-revealed words
-    setHitIds(new Set(hits.filter(id => (visibilityMap[id] ?? 'hidden') !== 'revealed')))
-  }, [activeStamp, visibilityMap])
+  function handleArticleClick(e: React.MouseEvent<HTMLElement>) {
+    if (!stampMode || !activeStamp || !articleRef.current) return
 
-  function handleArticleClick() {
-    if (!stampMode || hitIds.size === 0) return
+    const panel = articleRef.current
+    const rect = panel.getBoundingClientRect()
+    const contentX = e.clientX - rect.left
+    const contentY = e.clientY - rect.top + panel.scrollTop
+
+    const newStamp: PlacedStamp = {
+      id: `s${Date.now()}`,
+      cx: contentX,
+      cy: contentY,
+      angle: rotRef.current,
+      shapeDef: activeStamp,
+    }
+
+    setPlacedStamps(prev => [...prev, newStamp])
+
+    const hits = detectHits(newStamp, bbRef.current, rect, panel.scrollTop)
+    const toCollect = hits.filter(id => (visibilityMap[id] ?? 'hidden') !== 'revealed')
+
     let collected = 0
-    for (const tokenId of hitIds) {
+    for (const tokenId of toCollect) {
       const token = article.tokens.find(t => t.id === tokenId)
-      if (token && token.type === 'word') {
-        if (inv.addWord(token).success) collected++
-      }
+      if (token?.type === 'word' && inv.addWord(token).success) collected++
     }
     if (collected > 0) {
       setWords(inv.getWords())
       showToast(`+ ${collected} word${collected > 1 ? 's' : ''} collected!`)
     }
-    setHitIds(new Set())
   }
 
   function handleTravel(word: CollectedWord) {
@@ -179,6 +277,7 @@ export default function App() {
   const letterEntries = Object.entries(letterPool).sort(([a], [b]) => a.localeCompare(b))
   const travelCost = travelMgr.getTravelCost('travel', travelHistory)
   const canTravel = travelMgr.canAfford('travel', letterPool, travelHistory)
+  const showOverlay = placedStamps.length > 0 || stampMode
 
   return (
     <div className="app">
@@ -189,7 +288,7 @@ export default function App() {
         {activeStamp && (
           <button
             className={`stamp-btn ${stampMode ? 'active' : ''}`}
-            onClick={() => { setStampMode(m => !m); setHitIds(new Set()) }}
+            onClick={() => { setStampMode(m => !m) }}
           >
             {activeStamp.emoji}
             <span className="stamp-word">{activeStamp.word}</span>
@@ -213,32 +312,55 @@ export default function App() {
             onWordClick={stampMode ? undefined : handleWordClick}
           />
 
-          {/* Gold highlights for words under the stamp — fixed so scroll doesn't offset them */}
-          {stampMode && activeStamp && Array.from(hitIds).map(id => {
-            const rect = bbRef.current[id]
-            if (!rect) return null
-            return (
-              <div
-                key={id}
-                className="hit-highlight"
-                style={{
-                  position: 'fixed',
-                  left: rect.left,
-                  top: rect.top,
-                  width: rect.width,
-                  height: rect.height + 4,
-                }}
+          {/* SVG overlay: dark mask cut through by emoji silhouette stamps */}
+          {showOverlay && activeStamp && (
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0, left: 0,
+                width: '100%',
+                height: overlayH,
+                pointerEvents: 'none',
+                zIndex: 10,
+                overflow: 'visible',
+              }}
+            >
+              <defs>
+                <mask id="stamp-mask">
+                  <rect width="100%" height={overlayH} fill="white" />
+                  {placedStamps.map(s => (
+                    <g
+                      key={s.id}
+                      transform={`translate(${s.cx}, ${s.cy}) rotate(${(s.angle * 180) / Math.PI}) scale(${s.shapeDef.finalScale})`}
+                    >
+                      <image
+                        href={s.shapeDef.dataURL}
+                        x={-s.shapeDef.size / 2}
+                        y={-s.shapeDef.size / 2}
+                        width={s.shapeDef.size}
+                        height={s.shapeDef.size}
+                      />
+                    </g>
+                  ))}
+                  {/* Live cursor preview hole — transform updated directly by RAF */}
+                  <g ref={cursorHoleRef} style={{ display: 'none' }}>
+                    <image
+                      href={activeStamp.dataURL}
+                      x={-activeStamp.size / 2}
+                      y={-activeStamp.size / 2}
+                      width={activeStamp.size}
+                      height={activeStamp.size}
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <rect
+                width="100%"
+                height={overlayH}
+                fill="rgba(0,0,0,0.92)"
+                mask="url(#stamp-mask)"
               />
-            )
-          })}
-
-          {activeStamp && stampMode && (
-            <StampCursor
-              shape={activeStamp}
-              containerRef={articleRef as React.RefObject<HTMLElement>}
-              pixelsPerAreaUnit={PIXELS_PER_AREA}
-              onMouseMove={handleStampMouseMove}
-            />
+            </svg>
           )}
         </main>
 
@@ -335,6 +457,31 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {/* Fixed cursor SVG: shows rotating stamp image at mouse viewport position */}
+      {stampMode && activeStamp && (
+        <svg
+          style={{
+            position: 'fixed',
+            top: 0, left: 0,
+            width: '100vw',
+            height: '100vh',
+            pointerEvents: 'none',
+            zIndex: 50,
+            overflow: 'visible',
+          }}
+        >
+          <g ref={cursorImgRef} style={{ display: 'none', opacity: 0.4 }}>
+            <image
+              href={activeStamp.dataURL}
+              x={-activeStamp.size / 2}
+              y={-activeStamp.size / 2}
+              width={activeStamp.size}
+              height={activeStamp.size}
+            />
+          </g>
+        </svg>
+      )}
     </div>
   )
 }
